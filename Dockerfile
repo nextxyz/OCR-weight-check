@@ -15,7 +15,10 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 # 1) 의존성 먼저 설치 (레이어 캐시 활용)
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+# CPU 전용 torch/torchvision 을 먼저 설치 → CUDA(nvidia-*) 패키지 회피.
+# (기본 PyPI torch 는 CUDA 런타임을 통째로 받아 수 GB + 느림)
+RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+    && pip install -r requirements.txt
 
 # 2) EasyOCR 모델을 빌드 시 미리 받아 이미지에 구워넣기
 #    (서버 첫 실행 시 인터넷 다운로드 불필요 + 첫 요청 지연 제거)

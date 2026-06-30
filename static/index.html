@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>몸무게 기록</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --bg:#0f1216; --card:#1a1f27; --accent:#4f8cff; --muted:#8b93a1; --warn:#ffb020; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: #e8ecf1; padding: 16px; max-width: 760px; margin: 0 auto;
+    }
+    h1 { font-size: 1.3rem; margin: 8px 0 16px; }
+    .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+    button {
+      background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+      padding: 12px 18px; font-size: 1rem; cursor: pointer; font-weight: 600;
+    }
+    button.secondary { background: #2a303a; }
+    button:disabled { opacity: .5; cursor: default; }
+    label.filebtn {
+      display: inline-block; background: var(--accent); color:#fff; padding: 14px 20px;
+      border-radius: 10px; font-weight: 600; cursor: pointer; font-size: 1.05rem;
+    }
+    input[type=file] { display: none; }
+    .preview { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .preview img { max-height: 120px; border-radius: 8px; border: 1px solid #2a303a; }
+    .weightrow { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .weightrow input {
+      width: 130px; font-size: 1.6rem; padding: 8px 10px; border-radius: 10px;
+      border: 2px solid #2a303a; background: #0f1216; color: #fff; text-align: center;
+    }
+    .weightrow input.warn { border-color: var(--warn); }
+    .unit { font-size: 1.2rem; color: var(--muted); }
+    .hint { color: var(--muted); font-size: .85rem; margin-top: 6px; }
+    .hint.warn { color: var(--warn); }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #242a33; }
+    th { color: var(--muted); font-weight: 500; }
+    td .edit { background: transparent; color: var(--accent); padding: 4px 8px; font-size: .85rem; }
+    td .del { background: transparent; color: #ff6b6b; padding: 4px 8px; font-size: .85rem; }
+    .hidden { display: none; }
+    #status { margin-top: 10px; color: var(--muted); font-size: .9rem; }
+    .tablehead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .tablewrap { max-height: 360px; overflow-y: auto; }
+    .tablewrap thead th { position: sticky; top: 0; background: var(--card); }
+  </style>
+</head>
+<body>
+  <h1>⚖️ 몸무게 기록</h1>
+
+  <div class="card">
+    <label class="filebtn">
+      📷 사진 찍기 / 올리기
+      <input id="fileInput" type="file" accept="image/*" capture="environment" />
+    </label>
+    <div id="status"></div>
+
+    <!-- 검출 결과 확인/수정 영역 -->
+    <div id="confirmBox" class="hidden">
+      <div class="preview">
+        <img id="cropImg" alt="검출 영역" />
+        <div>
+          <div class="weightrow">
+            <input id="weightInput" type="number" step="0.1" inputmode="decimal" />
+            <span class="unit">kg</span>
+          </div>
+          <div id="confHint" class="hint"></div>
+        </div>
+      </div>
+      <div style="margin-top:14px; display:flex; gap:10px;">
+        <button id="saveBtn">저장</button>
+        <button id="cancelBtn" class="secondary">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <canvas id="chart" height="220"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="tablehead">
+      <span id="historyCount" class="hint"></span>
+      <button id="toggleAll" class="secondary hidden" style="padding:6px 12px; font-size:.85rem;"></button>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>시간</th><th>몸무게(kg)</th><th></th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let pending = null;   // 검출 후 저장 대기중인 데이터
+let chart = null;
+let lastRows = [];    // 마지막으로 불러온 기록
+let showAll = false;  // 표 전체 보기 여부
+const RECENT_LIMIT = 30;  // 기본으로 보여줄 최근 기록 개수
+
+function setStatus(msg) { $("status").textContent = msg || ""; }
+
+// 1) 파일 선택 → /api/detect 호출
+$("fileInput").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  setStatus("인식 중...");
+  $("confirmBox").classList.add("hidden");
+
+  const fd = new FormData();
+  fd.append("file", f);
+  let res;
+  try {
+    res = await fetch("/api/detect", { method: "POST", body: fd }).then(r => r.json());
+  } catch (err) {
+    setStatus("요청 실패: " + err);
+    return;
+  }
+  e.target.value = "";  // 같은 파일 다시 선택 가능하게
+
+  if (!res.ok) {
+    // 검출 실패 → 직접 입력하도록 안내
+    setStatus("");
+    pending = { image_file: res.image_file, crop_file: null, conf: null };
+    $("cropImg").src = res.image_url || "";
+    $("weightInput").value = "";
+    $("weightInput").classList.add("warn");
+    $("confHint").textContent = "숫자 검출 실패 — 직접 입력해 주세요.";
+    $("confHint").className = "hint warn";
+    $("confirmBox").classList.remove("hidden");
+    return;
+  }
+
+  setStatus("");
+  pending = { image_file: res.image_file, crop_file: res.crop_file, conf: res.conf };
+  $("cropImg").src = res.crop_url || res.image_url;
+  $("weightInput").value = res.weight;
+  if (res.low_conf) {
+    $("weightInput").classList.add("warn");
+    $("confHint").textContent = `⚠ 신뢰도 낮음 (${res.conf}). 값을 확인/수정해 주세요.`;
+    $("confHint").className = "hint warn";
+  } else {
+    $("weightInput").classList.remove("warn");
+    $("confHint").textContent = `인식 신뢰도 ${res.conf}. 맞으면 저장하세요.`;
+    $("confHint").className = "hint";
+  }
+  $("confirmBox").classList.remove("hidden");
+});
+
+// 2) 저장 → /api/measurements
+$("saveBtn").addEventListener("click", async () => {
+  const w = parseFloat($("weightInput").value);
+  if (!(w > 0)) { alert("올바른 몸무게를 입력하세요."); return; }
+  $("saveBtn").disabled = true;
+  await fetch("/api/measurements", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      weight: w, conf: pending?.conf,
+      image_file: pending?.image_file, crop_file: pending?.crop_file,
+    }),
+  });
+  $("saveBtn").disabled = false;
+  $("confirmBox").classList.add("hidden");
+  pending = null;
+  await refresh();
+});
+
+$("cancelBtn").addEventListener("click", () => {
+  $("confirmBox").classList.add("hidden");
+  pending = null;
+});
+
+// 3) 기록 불러와 차트+표 갱신
+async function refresh() {
+  lastRows = await fetch("/api/measurements").then(r => r.json());
+  renderChart(lastRows);
+  renderTable();
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit" });
+}
+
+function renderChart(rows) {
+  const labels = rows.map(r => fmtTime(r.taken_at));
+  const data = rows.map(r => r.weight);
+  const ctx = $("chart");
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: { labels, datasets: [{
+      label: "몸무게 (kg)", data,
+      borderColor: "#4f8cff", backgroundColor: "rgba(79,140,255,.15)",
+      tension: 0.25, fill: true, pointRadius: 4, pointBackgroundColor: "#4f8cff",
+    }]},
+    options: {
+      scales: {
+        x: { ticks: { color: "#8b93a1" }, grid: { color: "#242a33" } },
+        y: { ticks: { color: "#8b93a1" }, grid: { color: "#242a33" } },
+      },
+      plugins: { legend: { labels: { color: "#e8ecf1" } } },
+    },
+  });
+}
+
+function renderTable() {
+  const total = lastRows.length;
+  const ordered = [...lastRows].reverse();   // 최신순
+  const visible = showAll ? ordered : ordered.slice(0, RECENT_LIMIT);
+
+  const body = $("historyBody");
+  body.innerHTML = "";
+  visible.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${fmtTime(r.taken_at)}</td><td>${r.weight}</td>
+      <td style="white-space:nowrap;">
+        <button class="edit" data-id="${r.id}" data-w="${r.weight}">수정</button>
+        <button class="del" data-id="${r.id}">삭제</button>
+      </td>`;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll(".edit").forEach(b => b.addEventListener("click", async () => {
+    const cur = b.dataset.w;
+    const input = prompt("몸무게(kg)를 수정하세요:", cur);
+    if (input === null) return;             // 취소
+    const w = parseFloat(input);
+    if (!(w > 0)) { alert("올바른 몸무게를 입력하세요."); return; }
+    await fetch(`/api/measurements/${b.dataset.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weight: w }),
+    });
+    await refresh();
+  }));
+  body.querySelectorAll(".del").forEach(b => b.addEventListener("click", async () => {
+    await fetch(`/api/measurements/${b.dataset.id}`, { method: "DELETE" });
+    await refresh();
+  }));
+
+  // 개수 표시 + 토글 버튼
+  $("historyCount").textContent =
+    showAll || total <= RECENT_LIMIT
+      ? `총 ${total}개`
+      : `최근 ${RECENT_LIMIT}개 표시 (총 ${total}개)`;
+  const toggle = $("toggleAll");
+  if (total > RECENT_LIMIT) {
+    toggle.classList.remove("hidden");
+    toggle.textContent = showAll ? "최근만 보기" : `전체 ${total}개 보기`;
+  } else {
+    toggle.classList.add("hidden");
+  }
+}
+
+$("toggleAll").addEventListener("click", () => {
+  showAll = !showAll;
+  renderTable();
+});
+
+refresh();
+</script>
+</body>
+</html>

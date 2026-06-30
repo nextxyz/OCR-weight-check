@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# 런타임 생성물 (커밋하지 않음)
+uploads/
+crops/
+weights.db
+weight_results.csv
+
+# 샘플/테스트 이미지 (저작권 문제 소지 — 직접 준비)
+weight_pic/
+
+# 자체 서명 인증서 (HTTPS 테스트용)
+*.pem
+
+# 에디터/도구
+.claude/

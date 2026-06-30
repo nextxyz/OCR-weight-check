@@ -12,6 +12,10 @@ uploads/
 crops/
 weights.db
 weight_results.csv
+data/
+
+# 도커 이미지 추출물
+*.tar.gz
 
 # 샘플/테스트 이미지 (저작권 문제 소지 — 직접 준비)
 weight_pic/

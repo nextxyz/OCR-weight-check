@@ -87,6 +87,23 @@ docker run -d --name weightcheck \
 ```
 → `http://서버IP:8077`
 
+### docker compose 로 띄우기 (더 간단)
+
+`docker-compose.yml` 이 포함되어 있어 한 줄로 실행/중지할 수 있습니다.
+
+```bash
+# 빌드 호스트(소스 있음): 빌드 후 실행
+docker compose up -d --build
+
+# 배포 서버(tar.gz 로드 후): 로드된 이미지로 실행
+gunzip -c ocr-weight-check.tar.gz | docker load
+docker compose up -d
+
+docker compose logs -f      # 로그 보기
+docker compose down         # 중지/삭제 (data/ 는 보존)
+```
+데이터는 `./data` 폴더에 저장되고, 포트·경로는 `docker-compose.yml`에서 조정합니다.
+
 특징:
 - EasyOCR 모델을 **이미지에 미리 구워넣어** 서버 첫 실행 시 다운로드가 필요 없습니다.
 - `weights.db`·`uploads/`는 컨테이너의 `/data`에 저장되고, 위처럼 **볼륨(`-v`)으로 호스트에 마운트**하면 재배포·재시작에도 데이터가 보존됩니다.

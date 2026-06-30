@@ -65,6 +65,33 @@ python weight_ocr.py path/to/folder --csv results.csv
 python weight_ocr.py photo.jpg --min 20 --max 200 --conf 0.6
 ```
 
+## Docker 배포 (레지스트리 없이)
+
+개인 프로젝트라 별도 레지스트리(Harbor 등)가 없을 때, 이미지를 `tar.gz`로 추출해 다른 서버로 옮겨 띄웁니다.
+
+**빌드 머신(예: 개발 PC)에서:**
+```bash
+./deploy.sh                       # linux/amd64 서버용 (일반적)
+PLATFORM=linux/arm64 ./deploy.sh  # arm64 서버면
+```
+→ `ocr-weight-check.tar.gz` 생성. (⚠ 빌드 플랫폼과 서버 CPU 아키텍처가 일치해야 함)
+
+**배포 서버에서:**
+```bash
+gunzip -c ocr-weight-check.tar.gz | docker load
+docker run -d --name weightcheck \
+  -p 8077:8077 \
+  -v $PWD/data:/data \
+  --restart unless-stopped \
+  ocr-weight-check:latest
+```
+→ `http://서버IP:8077`
+
+특징:
+- EasyOCR 모델을 **이미지에 미리 구워넣어** 서버 첫 실행 시 다운로드가 필요 없습니다.
+- `weights.db`·`uploads/`는 컨테이너의 `/data`에 저장되고, 위처럼 **볼륨(`-v`)으로 호스트에 마운트**하면 재배포·재시작에도 데이터가 보존됩니다.
+- 데이터 경로는 환경변수 `WEIGHT_DB`, `UPLOAD_DIR`로 조정할 수 있습니다.
+
 ## 저장 동작 참고
 
 - 업로드된 **원본·crop 이미지는 `uploads/` 폴더(파일)**에 저장되고, **DB에는 파일명만** 저장됩니다(이미지 바이너리 아님).

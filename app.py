@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -27,8 +28,9 @@ import ocr_core
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)  # StaticFiles 마운트 전에 존재해야 함
+# 배포 시 볼륨 경로로 바꿀 수 있도록 환경변수 우선 (예: UPLOAD_DIR=/data/uploads)
+UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or (BASE_DIR / "uploads"))
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)  # StaticFiles 마운트 전에 존재해야 함
 
 
 @asynccontextmanager

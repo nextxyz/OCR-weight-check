@@ -2,10 +2,12 @@
 """SQLite 저장소 (몸무게 측정 기록). 파일 1개로 동작."""
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "weights.db"
+# 배포 시 볼륨 경로로 바꿀 수 있도록 환경변수 우선 (예: WEIGHT_DB=/data/weights.db)
+DB_PATH = Path(os.environ.get("WEIGHT_DB") or (Path(__file__).parent / "weights.db"))
 
 
 def _connect() -> sqlite3.Connection:
@@ -15,6 +17,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
         conn.execute(
             """

@@ -104,6 +104,32 @@ const RECENT_LIMIT = 30;  // 기본으로 보여줄 최근 기록 개수
 
 function setStatus(msg) { $("status").textContent = msg || ""; }
 
+// 업로드 전 브라우저에서 사진을 축소 (OCR엔 고해상도 불필요 → 업로드/용량 절감)
+const MAX_DIM = 1600;       // 긴 변 최대 픽셀
+const JPEG_QUALITY = 0.85;  // 재인코딩 품질
+
+async function downscaleImage(file) {
+  try {
+    // EXIF 회전까지 반영해서 디코드
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1) { bitmap.close?.(); return file; }  // 이미 작으면 원본 사용
+
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+
+    const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", JPEG_QUALITY));
+    return blob || file;
+  } catch (err) {
+    // createImageBitmap 미지원 등 → 원본 그대로 업로드
+    return file;
+  }
+}
+
 // 1) 파일 선택 → /api/detect 호출
 $("fileInput").addEventListener("change", async (e) => {
   const f = e.target.files[0];
@@ -111,8 +137,9 @@ $("fileInput").addEventListener("change", async (e) => {
   setStatus("인식 중...");
   $("confirmBox").classList.add("hidden");
 
+  const blob = await downscaleImage(f);   // 업로드 전 축소
   const fd = new FormData();
-  fd.append("file", f);
+  fd.append("file", blob, (f.name || "photo").replace(/\.\w+$/, "") + ".jpg");
   let res;
   try {
     res = await fetch("/api/detect", { method: "POST", body: fd }).then(r => r.json());
